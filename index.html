@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Budget Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy:  #0F1B2D; --slate: #1E3A5F; --panel: #162844;
+    --gold:  #F4C542; --gold2: #e8b52e; --text:  #E8EDF3;
+    --muted: #8BA0B5; --border:#243C60; --green: #3DD68C;
+    --red:   #FF6B6B; --warn:  #FFB347; --radius:14px;
+  }
+  body { background:var(--navy); color:var(--text); font-family:'DM Sans',sans-serif; min-height:100vh; padding-bottom:48px; }
+
+  /* ── Login screen ── */
+  #login-screen {
+    display:flex; align-items:center; justify-content:center;
+    min-height:100vh; padding:24px;
+  }
+  .login-card {
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    padding:36px 32px; width:100%; max-width:380px;
+  }
+  .login-logo { font-size:1.6rem; font-weight:700; letter-spacing:-.5px; margin-bottom:6px; }
+  .login-logo span { color:var(--gold); }
+  .login-sub { font-size:.82rem; color:var(--muted); margin-bottom:28px; }
+  .login-field { margin-bottom:16px; }
+  .login-error { background:rgba(255,107,107,.12); border:1px solid rgba(255,107,107,.3); border-radius:8px; color:var(--red); font-size:.82rem; padding:10px 14px; margin-bottom:16px; display:none; }
+  .login-btn { width:100%; padding:12px; font-size:.95rem; margin-top:4px; }
+  .login-note { font-size:.7rem; color:var(--muted); text-align:center; margin-top:16px; }
+
+  /* ── App shell (hidden until logged in) ── */
+  #app-shell { display:none; }
+
+  /* ── Header ── */
+  header { background:var(--slate); border-bottom:1px solid var(--border); padding:14px 20px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
+  .logo { font-size:1.1rem; font-weight:700; letter-spacing:-.3px; }
+  .logo span { color:var(--gold); }
+  .header-right { display:flex; align-items:center; gap:14px; }
+  .header-date { font-family:'DM Mono',monospace; font-size:.78rem; color:var(--muted); text-align:right; line-height:1.4; }
+  .header-date strong { display:block; color:var(--text); font-size:.92rem; }
+  .logout-btn { background:transparent; border:1px solid var(--border); border-radius:6px; color:var(--muted); font-size:.72rem; font-weight:600; cursor:pointer; padding:5px 10px; transition:border-color .2s, color .2s; white-space:nowrap; }
+  .logout-btn:hover { border-color:var(--red); color:var(--red); }
+
+  /* ── Save indicator ── */
+  .save-toast { position:fixed; bottom:20px; right:20px; background:var(--green); color:var(--navy); font-size:.78rem; font-weight:700; padding:8px 14px; border-radius:8px; opacity:0; transform:translateY(6px); transition:opacity .3s, transform .3s; pointer-events:none; z-index:999; }
+  .save-toast.show { opacity:1; transform:translateY(0); }
+
+  /* ── Page nav ── */
+  .page-nav { display:flex; background:var(--navy); border-bottom:1px solid var(--border); padding:0 16px; gap:4px; }
+  .page-tab { padding:12px 18px; font-size:.82rem; font-weight:600; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; transition:color .2s, border-color .2s; user-select:none; }
+  .page-tab.active { color:var(--gold); border-bottom-color:var(--gold); }
+
+  /* ── Layout ── */
+  .container { max-width:900px; margin:0 auto; padding:24px 16px; }
+  .page { display:none; } .page.active { display:block; }
+  .grid { display:grid; gap:20px; grid-template-columns:1fr; }
+  @media(min-width:680px){ .grid{ grid-template-columns:1fr 1fr; } .span2{ grid-column:1/-1; } }
+
+  /* ── Cards ── */
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:20px; }
+  .card-title { font-size:.7rem; font-weight:600; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin-bottom:16px; }
+
+  /* ── Health bar ── */
+  .health-bar-bg { height:10px; background:var(--border); border-radius:99px; overflow:hidden; }
+  .health-bar-fill { height:100%; border-radius:99px; background:var(--green); transition:width .5s ease, background .4s ease; }
+  .health-labels { display:flex; justify-content:space-between; font-size:.72rem; color:var(--muted); margin-top:5px; }
+
+  /* ── Summary numbers ── */
+  .summary-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-top:4px; }
+  .sum-cell { text-align:center; }
+  .sum-label { font-size:.65rem; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin-bottom:4px; }
+  .sum-val { font-family:'DM Mono',monospace; font-size:1.25rem; font-weight:500; }
+  .sum-val.income { color:var(--green); } .sum-val.bills { color:var(--red); }
+  .sum-val.remain { color:var(--gold); } .sum-val.negative { color:var(--red); }
+
+  /* ── Inputs ── */
+  label { display:block; font-size:.8rem; color:var(--muted); margin-bottom:6px; font-weight:500; }
+  input[type="text"], input[type="number"], input[type="password"], select {
+    width:100%; background:var(--navy); border:1px solid var(--border); border-radius:8px;
+    color:var(--text); font-family:'DM Mono',monospace; font-size:.95rem; padding:10px 14px; outline:none; transition:border-color .2s;
+  }
+  input:focus, select:focus { border-color:var(--gold); }
+  select option { background:var(--navy); }
+  .input-prefix { position:relative; }
+  .input-prefix span { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--muted); font-family:'DM Mono',monospace; font-size:.95rem; pointer-events:none; }
+  .input-prefix input { padding-left:26px; }
+
+  /* ── Buttons ── */
+  .btn { border:none; border-radius:8px; cursor:pointer; font-family:'DM Sans',sans-serif; font-weight:600; font-size:.85rem; padding:10px 16px; transition:opacity .15s,transform .1s; }
+  .btn:active { transform:scale(.97); }
+  .btn-gold { background:var(--gold); color:var(--navy); }
+  .btn-gold:hover { background:var(--gold2); }
+  .btn-ghost { background:transparent; border:1px solid var(--border); color:var(--muted); }
+  .btn-ghost:hover { border-color:var(--gold); color:var(--gold); }
+  .btn-danger { background:transparent; border:none; color:var(--red); font-size:.8rem; padding:6px 10px; }
+
+  /* ── Inner toggle ── */
+  .toggle-row { display:flex; background:var(--navy); border-radius:8px; padding:3px; margin-bottom:18px; border:1px solid var(--border); }
+  .toggle-btn { flex:1; text-align:center; padding:7px; border-radius:6px; font-size:.8rem; font-weight:600; cursor:pointer; color:var(--muted); transition:all .2s; user-select:none; }
+  .toggle-btn.active { background:var(--gold); color:var(--navy); }
+
+  /* ── Bill items ── */
+  .bill-list { display:flex; flex-direction:column; gap:10px; margin-top:14px; }
+  .bill-item { display:flex; align-items:center; gap:10px; background:var(--navy); border:1px solid var(--border); border-radius:10px; padding:10px 12px; }
+  .bill-info { flex:1; min-width:0; }
+  .bill-name { font-size:.9rem; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bill-cat  { font-size:.68rem; color:var(--muted); margin-top:2px; }
+  .bill-amt  { font-family:'DM Mono',monospace; font-size:.95rem; color:var(--red); flex-shrink:0; }
+  .add-bill-form { display:grid; gap:10px; margin-top:12px; }
+  .form-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media(max-width:440px){ .form-row{ grid-template-columns:1fr; } }
+
+  /* ── Calendar ── */
+  .cal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .cal-month { font-weight:600; font-size:1rem; }
+  .cal-nav { background:transparent; border:1px solid var(--border); border-radius:6px; color:var(--muted); font-size:1rem; cursor:pointer; width:30px; height:30px; display:flex; align-items:center; justify-content:center; transition:border-color .2s; }
+  .cal-nav:hover { border-color:var(--gold); color:var(--gold); }
+  .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; text-align:center; }
+  .cal-dow { font-size:.62rem; font-weight:600; letter-spacing:.08em; color:var(--muted); text-transform:uppercase; padding-bottom:6px; }
+  .cal-day { aspect-ratio:1; display:flex; align-items:center; justify-content:center; font-size:.78rem; border-radius:50%; cursor:pointer; transition:background .15s; color:var(--text); flex-direction:column; }
+  .cal-day:hover { background:var(--border); }
+  .cal-day.other-month { color:var(--border); cursor:default; }
+  .cal-day.other-month:hover { background:transparent; }
+  .cal-day.today { background:var(--gold); color:var(--navy); font-weight:700; }
+  .cal-day.selected { background:var(--slate); border:1px solid var(--gold); }
+  .cal-day.in-week { background:rgba(244,197,66,.08); }
+  .cal-day.today.in-week { background:var(--gold); }
+  .cal-dot { width:4px; height:4px; border-radius:50%; background:var(--gold); margin-top:2px; }
+  .cal-dot-bill { width:4px; height:4px; border-radius:50%; background:var(--red); margin-top:2px; }
+  .cal-dots { display:flex; gap:2px; margin-top:2px; }
+  .note-section { margin-top:14px; }
+  textarea { width:100%; background:var(--navy); border:1px solid var(--border); border-radius:8px; color:var(--text); font-family:'DM Sans',sans-serif; font-size:.85rem; padding:10px 14px; resize:vertical; min-height:70px; outline:none; transition:border-color .2s; }
+  textarea:focus { border-color:var(--gold); }
+
+  /* ── Weekly view ── */
+  .week-nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+  .week-label { font-weight:600; font-size:.95rem; text-align:center; flex:1; }
+  .week-strip { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:20px; }
+  .wday { background:var(--navy); border:1px solid var(--border); border-radius:10px; padding:8px 4px; text-align:center; }
+  .wday.is-today { border-color:var(--gold); background:rgba(244,197,66,.08); }
+  .wday-name { font-size:.6rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:4px; }
+  .wday-num  { font-family:'DM Mono',monospace; font-size:.9rem; font-weight:600; }
+  .wday.is-today .wday-num { color:var(--gold); }
+  .week-summary-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:20px; }
+  .week-bar-bg { height:8px; background:var(--border); border-radius:99px; overflow:hidden; margin-top:8px; }
+  .week-bar-fill { height:100%; border-radius:99px; background:var(--green); transition:width .5s ease, background .4s ease; }
+  .week-section-title { font-size:.68rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+  .week-bill-row { display:flex; align-items:center; justify-content:space-between; padding:9px 12px; background:var(--navy); border:1px solid var(--border); border-radius:8px; margin-bottom:8px; }
+  .week-bill-left { flex:1; min-width:0; }
+  .week-bill-name { font-size:.88rem; font-weight:500; }
+  .week-bill-sub  { font-size:.68rem; color:var(--muted); margin-top:2px; }
+  .week-bill-amt  { font-family:'DM Mono',monospace; font-size:.9rem; color:var(--red); margin-left:12px; flex-shrink:0; }
+  .income-row { display:flex; align-items:center; justify-content:space-between; padding:9px 12px; background:var(--navy); border:1px solid var(--border); border-radius:8px; margin-bottom:8px; }
+  .income-row-amt  { font-family:'DM Mono',monospace; font-size:.9rem; color:var(--green); margin-left:12px; flex-shrink:0; }
+
+  /* ── Misc ── */
+  .divider { border:none; border-top:1px solid var(--border); margin:16px 0; }
+  .row-end { display:flex; justify-content:flex-end; gap:8px; margin-top:10px; }
+  .empty-state { color:var(--muted); font-size:.82rem; text-align:center; padding:14px 0; }
+  .tag { display:inline-block; font-size:.62rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; padding:2px 7px; border-radius:4px; background:var(--border); color:var(--muted); }
+  .pay-freq { font-size:.75rem; color:var(--muted); margin-top:2px; }
+  .due-badge { display:inline-flex; align-items:center; gap:4px; font-size:.65rem; font-weight:600; color:var(--gold); background:rgba(244,197,66,.12); border:1px solid rgba(244,197,66,.25); border-radius:4px; padding:1px 6px; margin-left:6px; }
+  .due-badge.overdue { color:var(--red); background:rgba(255,107,107,.12); border-color:rgba(255,107,107,.25); }
+  .due-badge.due-soon { color:var(--warn); background:rgba(255,179,71,.12); border-color:rgba(255,179,71,.25); }
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance:none; }
+  .due-day-wrap { display:flex; align-items:center; gap:8px; }
+  .due-day-wrap input { flex:1; }
+  .due-day-wrap .due-hint { font-size:.72rem; color:var(--muted); white-space:nowrap; }
+
+  /* ── Mortgage split ── */
+  .mortgage-panel { background:var(--navy); border:1px solid var(--gold); border-radius:10px; padding:14px; margin-top:2px; }
+  .mortgage-panel-title { font-size:.68rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--gold); margin-bottom:12px; }
+  .split-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
+  .split-num { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; background:var(--gold); color:var(--navy); border-radius:50%; font-size:.68rem; font-weight:700; flex-shrink:0; margin-right:4px; }
+  .mortgage-total-note { font-size:.72rem; color:var(--muted); margin-top:10px; text-align:right; }
+  .mortgage-total-note span { color:var(--gold); font-family:'DM Mono',monospace; font-weight:600; }
+  .bill-item.mortgage { border-color:rgba(244,197,66,.3); flex-direction:column; align-items:flex-start; }
+  .bill-item.mortgage .bill-top { display:flex; align-items:center; gap:10px; width:100%; }
+  .bill-item.mortgage .bill-info { flex:1; min-width:0; }
+  .mortgage-splits { display:flex; flex-direction:column; gap:5px; margin-top:8px; padding-top:8px; border-top:1px solid var(--border); width:100%; }
+  .split-line { display:flex; align-items:center; justify-content:space-between; font-size:.78rem; }
+  .split-line-left { display:flex; align-items:center; gap:7px; color:var(--muted); }
+  .split-line-amt  { font-family:'DM Mono',monospace; color:var(--red); font-size:.8rem; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ LOGIN SCREEN ══════════════════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">Budget<span>.</span></div>
+    <div class="login-sub">Sign in to your dashboard</div>
+    <div class="login-error" id="login-error">Incorrect username or password.</div>
+    <div class="login-field">
+      <label>Username</label>
+      <input type="text" id="login-user" placeholder="Username" autocomplete="username" />
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter') doLogin()" />
+    </div>
+    <button class="btn btn-gold login-btn" onclick="doLogin()">Sign In</button>
+    <div class="login-note">Password is case sensitive</div>
+  </div>
+</div>
+
+<!-- ══════════════════ APP SHELL ══════════════════ -->
+<div id="app-shell">
+
+<header>
+  <div class="logo">Budget<span>.</span></div>
+  <div class="header-right">
+    <div class="header-date">
+      <strong id="hdr-date"></strong>
+      <span id="hdr-day"></span>
+    </div>
+    <button class="logout-btn" onclick="doLogout()">Sign Out</button>
+  </div>
+</header>
+
+<nav class="page-nav">
+  <div class="page-tab active" id="nav-overview" onclick="showPage('overview')">Overview</div>
+  <div class="page-tab" id="nav-weekly" onclick="showPage('weekly')">Weekly</div>
+</nav>
+
+<!-- ════════ PAGE: OVERVIEW ════════ -->
+<div class="page active" id="page-overview">
+<div class="container">
+<div class="grid">
+
+  <div class="card span2">
+    <div class="card-title">Monthly Overview</div>
+    <div class="health-bar-bg"><div class="health-bar-fill" id="health-bar" style="width:100%"></div></div>
+    <div class="health-labels"><span id="hl-spent">$0 in bills</span><span id="hl-pct">100% remaining</span></div>
+    <div class="summary-grid" style="margin-top:16px">
+      <div class="sum-cell"><div class="sum-label">Income / mo</div><div class="sum-val income" id="s-income">$0.00</div></div>
+      <div class="sum-cell"><div class="sum-label">Bills / mo</div><div class="sum-val bills" id="s-bills">$0.00</div></div>
+      <div class="sum-cell"><div class="sum-label">Remaining</div><div class="sum-val remain" id="s-remain">$0.00</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Income</div>
+    <div style="margin-bottom:12px">
+      <label>Pay frequency</label>
+      <select id="pay-freq" onchange="updateEquiv()">
+        <option value="monthly">Monthly</option>
+        <option value="biweekly">Bi-weekly</option>
+        <option value="weekly">Weekly</option>
+        <option value="annual">Annual</option>
+      </select>
+    </div>
+    <div style="margin-bottom:12px">
+      <label>Amount per paycheck</label>
+      <div class="input-prefix"><span>$</span><input type="number" id="income-amt" placeholder="0.00" min="0" step="0.01" oninput="updateEquiv()" /></div>
+    </div>
+    <div id="monthly-equiv" style="font-size:.78rem;color:var(--muted);margin-top:4px;min-height:18px"></div>
+    <div class="row-end" style="margin-top:14px">
+      <button class="btn btn-gold" onclick="applyIncome()">Set Income</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Calendar</div>
+    <div class="cal-header">
+      <button class="cal-nav" onclick="changeMonth(-1)">&#8249;</button>
+      <span class="cal-month" id="cal-month-label"></span>
+      <button class="cal-nav" onclick="changeMonth(1)">&#8250;</button>
+    </div>
+    <div class="cal-grid" id="cal-grid"></div>
+    <div class="note-section" id="note-section" style="display:none">
+      <hr class="divider" />
+      <label id="note-date-label" style="margin-bottom:6px"></label>
+      <textarea id="note-input" placeholder="Add a note for this date…"></textarea>
+      <div class="row-end"><button class="btn btn-gold" onclick="saveNote()">Save Note</button></div>
+    </div>
+  </div>
+
+  <div class="card span2">
+    <div class="card-title">Bills &amp; Expenses</div>
+    <div class="toggle-row">
+      <div class="toggle-btn active" id="tab-itemized" onclick="setTab('itemized')">Itemized</div>
+      <div class="toggle-btn" id="tab-total" onclick="setTab('total')">Total Only</div>
+    </div>
+    <div id="view-itemized">
+      <div class="add-bill-form">
+        <div>
+          <label>Bill name</label>
+          <input type="text" id="bill-name" placeholder="e.g. Rent" />
+        </div>
+        <div class="form-row">
+          <div id="std-amt-field">
+            <label>Amount</label>
+            <div class="input-prefix"><span>$</span><input type="number" id="bill-amt" placeholder="0.00" min="0" step="0.01" /></div>
+          </div>
+          <div>
+            <label>Category</label>
+            <select id="bill-cat" onchange="toggleMortgage()">
+              <option value="Housing">Housing</option>
+              <option value="Utilities">Utilities</option>
+              <option value="Transport">Transport</option>
+              <option value="Food">Food</option>
+              <option value="Insurance">Insurance</option>
+              <option value="Subscriptions">Subscriptions</option>
+              <option value="Debt">Debt</option>
+              <option value="Healthcare">Healthcare</option>
+              <option value="Other">Other</option>
+              <option value="Mortgage">🏠 Mortgage</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div>
+            <label>Frequency</label>
+            <select id="bill-freq" onchange="toggleDueDay()">
+              <option value="monthly">Monthly</option>
+              <option value="biweekly">Bi-weekly</option>
+              <option value="weekly">Weekly</option>
+              <option value="annual">Annual</option>
+              <option value="one-time">One-time</option>
+            </select>
+          </div>
+          <div id="due-day-field">
+            <label>Due day <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+            <div class="due-day-wrap">
+              <input type="number" id="bill-due-day" placeholder="e.g. 15" min="1" max="31" />
+              <span class="due-hint">of month</span>
+            </div>
+          </div>
+        </div>
+        <div id="due-date-field" style="display:none">
+          <label>Due date <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+          <input type="date" id="bill-due-date" style="font-family:'DM Sans',sans-serif;color-scheme:dark;" />
+        </div>
+        <div id="mortgage-panel" class="mortgage-panel" style="display:none">
+          <div class="mortgage-panel-title">🏠 Split Mortgage Payment — 3 Parts</div>
+          <div style="margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+              <span class="split-num">1</span><span style="font-size:.78rem;color:var(--muted);font-weight:600">Payment 1</span>
+            </div>
+            <div class="split-row">
+              <div><label>Amount</label><div class="input-prefix"><span>$</span><input type="number" id="mg-amt-1" placeholder="0.00" min="0" step="0.01" oninput="updateMortgageTotal()" /></div></div>
+              <div><label>Day of month</label><div class="due-day-wrap"><input type="number" id="mg-day-1" placeholder="e.g. 1" min="1" max="31" /><span class="due-hint">of mo.</span></div></div>
+            </div>
+          </div>
+          <div style="margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+              <span class="split-num">2</span><span style="font-size:.78rem;color:var(--muted);font-weight:600">Payment 2</span>
+            </div>
+            <div class="split-row">
+              <div><label>Amount</label><div class="input-prefix"><span>$</span><input type="number" id="mg-amt-2" placeholder="0.00" min="0" step="0.01" oninput="updateMortgageTotal()" /></div></div>
+              <div><label>Day of month</label><div class="due-day-wrap"><input type="number" id="mg-day-2" placeholder="e.g. 15" min="1" max="31" /><span class="due-hint">of mo.</span></div></div>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+              <span class="split-num">3</span><span style="font-size:.78rem;color:var(--muted);font-weight:600">Payment 3</span>
+            </div>
+            <div class="split-row">
+              <div><label>Amount</label><div class="input-prefix"><span>$</span><input type="number" id="mg-amt-3" placeholder="0.00" min="0" step="0.01" oninput="updateMortgageTotal()" /></div></div>
+              <div><label>Day of month</label><div class="due-day-wrap"><input type="number" id="mg-day-3" placeholder="e.g. 28" min="1" max="31" /><span class="due-hint">of mo.</span></div></div>
+            </div>
+          </div>
+          <div class="mortgage-total-note">Total: <span id="mg-total-display">$0.00</span> / month</div>
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="btn btn-gold" style="width:100%" onclick="addBill()">+ Add Bill</button>
+        </div>
+      </div>
+      <div class="bill-list" id="bill-list"><div class="empty-state">No bills added yet.</div></div>
+    </div>
+    <div id="view-total" style="display:none">
+      <label>Total monthly bills</label>
+      <div class="input-prefix"><span>$</span><input type="number" id="total-bills" placeholder="0.00" min="0" step="0.01" oninput="applyTotal()" /></div>
+      <div style="margin-top:10px;font-size:.8rem;color:var(--muted)">Enter a single number for all your bills combined.</div>
+    </div>
+  </div>
+
+</div></div></div><!-- /page-overview -->
+
+<!-- ════════ PAGE: WEEKLY ════════ -->
+<div class="page" id="page-weekly">
+<div class="container">
+  <div class="week-nav">
+    <button class="btn btn-ghost" style="padding:8px 14px" onclick="shiftWeek(-1)">&#8249; Prev</button>
+    <div class="week-label" id="week-label"></div>
+    <button class="btn btn-ghost" style="padding:8px 14px" onclick="shiftWeek(1)">Next &#8250;</button>
+  </div>
+  <div class="week-strip" id="week-strip"></div>
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-title">This Week at a Glance</div>
+    <div class="week-summary-grid">
+      <div class="sum-cell"><div class="sum-label">Income</div><div class="sum-val income" id="w-income">$0.00</div></div>
+      <div class="sum-cell"><div class="sum-label">Bills</div><div class="sum-val bills" id="w-bills">$0.00</div></div>
+      <div class="sum-cell"><div class="sum-label">Remaining</div><div class="sum-val remain" id="w-remain">$0.00</div></div>
+    </div>
+    <div class="week-bar-bg"><div class="week-bar-fill" id="w-bar" style="width:100%"></div></div>
+    <div class="health-labels" style="margin-top:5px"><span id="w-bar-left"></span><span id="w-bar-right"></span></div>
+  </div>
+  <div class="card" style="margin-bottom:20px">
+    <div class="week-section-title">&#9650; Income This Week</div>
+    <div id="w-income-list"></div>
+  </div>
+  <div class="card">
+    <div class="week-section-title">&#9660; Bills This Week</div>
+    <div id="w-bill-list"></div>
+  </div>
+</div></div><!-- /page-weekly -->
+
+</div><!-- /app-shell -->
+
+<div class="save-toast" id="save-toast">✓ Saved</div>
+
+<script>
+// ═══════════════════ AUTH ═══════════════════
+const CORRECT_USER = 'Jgoluszka'; // exact case
+const CORRECT_HASH = 'd2041653f0c62909cc8aa82749bbf49ba0f6ccc7d3d335f48eb966d2c4c2fa5f';
+const SESSION_KEY  = 'budget_session';
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function doLogin() {
+  const user = document.getElementById('login-user').value.trim();
+  const pass = document.getElementById('login-pass').value; // keep original case
+  const hash = await sha256(pass);
+  const errEl = document.getElementById('login-error');
+  if (user === CORRECT_USER && hash === CORRECT_HASH) {
+    sessionStorage.setItem(SESSION_KEY, '1');
+    errEl.style.display = 'none';
+    showApp();
+  } else {
+    errEl.style.display = 'block';
+    document.getElementById('login-pass').value = '';
+    document.getElementById('login-pass').focus();
+  }
+}
+
+function doLogout() {
+  sessionStorage.removeItem(SESSION_KEY);
+  document.getElementById('app-shell').style.display   = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-user').value = '';
+  document.getElementById('login-pass').value = '';
+}
+
+function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-shell').style.display    = 'block';
+  initApp();
+}
+
+// Check if already logged in this session
+if (sessionStorage.getItem(SESSION_KEY)) showApp();
+
+// ═══════════════════ STATE ═══════════════════
+let income = 0, incomeAmt = 0, incomeFreq = 'monthly';
+let bills = [], notes = {}, activeTab = 'itemized';
+let totalBillsOverride = null, weekOffset = 0;
+let calYear, calMonth, selectedDate = null;
+const today = new Date();
+
+// ═══════════════════ LOCALSTORAGE ═══════════════════
+const LS_KEY = 'budget_data_v1';
+
+function saveData() {
+  const data = { income, incomeAmt, incomeFreq, bills, notes, activeTab, totalBillsOverride };
+  localStorage.setItem(LS_KEY, JSON.stringify(data));
+  showToast();
+}
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    income              = d.income       || 0;
+    incomeAmt           = d.incomeAmt    || 0;
+    incomeFreq          = d.incomeFreq   || 'monthly';
+    bills               = d.bills        || [];
+    notes               = d.notes        || {};
+    activeTab           = d.activeTab    || 'itemized';
+    totalBillsOverride  = d.totalBillsOverride || null;
+  } catch(e) { console.warn('Load error', e); }
+}
+
+function showToast() {
+  const t = document.getElementById('save-toast');
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+// ═══════════════════ INIT APP ═══════════════════
+function initApp() {
+  calYear  = today.getFullYear();
+  calMonth = today.getMonth();
+  loadData();
+  updateHeader();
+  restoreUI();
+  renderCalendar();
+  updateSummary();
+  renderWeekly();
+  toggleMortgage();
+}
+
+function restoreUI() {
+  // Income fields
+  document.getElementById('pay-freq').value   = incomeFreq;
+  document.getElementById('income-amt').value = incomeAmt || '';
+  updateEquiv();
+  // Bills tab
+  setTab(activeTab, true); // true = silent, don't re-save
+  if (totalBillsOverride !== null) document.getElementById('total-bills').value = totalBillsOverride;
+  renderBills();
+}
+
+// ═══════════════════ PAGE NAV ═══════════════════
+function showPage(p) {
+  document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.page-tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('page-' + p).classList.add('active');
+  document.getElementById('nav-' + p).classList.add('active');
+  if (p === 'weekly') renderWeekly();
+}
+
+// ═══════════════════ HEADER ═══════════════════
+function updateHeader() {
+  const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('hdr-date').textContent = `${MONTHS[today.getMonth()]} ${today.getDate()}, ${today.getFullYear()}`;
+  document.getElementById('hdr-day').textContent  = DAYS[today.getDay()];
+}
+
+// ═══════════════════ INCOME ═══════════════════
+function freqToMonthly(amt, freq) {
+  if (freq==='monthly')  return amt;
+  if (freq==='biweekly') return (amt*26)/12;
+  if (freq==='weekly')   return (amt*52)/12;
+  if (freq==='annual')   return amt/12;
+  return amt;
+}
+function freqToWeekly(amt, freq) {
+  if (freq==='monthly')  return (amt*12)/52;
+  if (freq==='biweekly') return amt/2;
+  if (freq==='weekly')   return amt;
+  if (freq==='annual')   return amt/52;
+  return (amt*12)/52;
+}
+function updateEquiv() {
+  const amt  = parseFloat(document.getElementById('income-amt').value) || 0;
+  const freq = document.getElementById('pay-freq').value;
+  const mo   = freqToMonthly(amt, freq);
+  document.getElementById('monthly-equiv').textContent =
+    (freq !== 'monthly' && amt > 0) ? `≈ $${mo.toFixed(2)} / month` : '';
+}
+function applyIncome() {
+  incomeAmt  = parseFloat(document.getElementById('income-amt').value) || 0;
+  incomeFreq = document.getElementById('pay-freq').value;
+  income     = freqToMonthly(incomeAmt, incomeFreq);
+  updateSummary(); renderWeekly(); saveData();
+}
+
+// ═══════════════════ BILLS ═══════════════════
+function toggleMortgage() {
+  const isMortgage = document.getElementById('bill-cat').value === 'Mortgage';
+  document.getElementById('std-amt-field').style.display  = isMortgage ? 'none' : '';
+  document.getElementById('mortgage-panel').style.display = isMortgage ? '' : 'none';
+  if (isMortgage) {
+    document.getElementById('bill-freq').value = 'monthly';
+    document.getElementById('due-day-field').style.display  = 'none';
+    document.getElementById('due-date-field').style.display = 'none';
+  } else { toggleDueDay(); }
+  updateMortgageTotal();
+}
+function updateMortgageTotal() {
+  const a1 = parseFloat(document.getElementById('mg-amt-1').value)||0;
+  const a2 = parseFloat(document.getElementById('mg-amt-2').value)||0;
+  const a3 = parseFloat(document.getElementById('mg-amt-3').value)||0;
+  document.getElementById('mg-total-display').textContent = '$'+(a1+a2+a3).toFixed(2);
+}
+function toggleDueDay() {
+  const freq = document.getElementById('bill-freq').value;
+  const isOneTime = freq === 'one-time';
+  document.getElementById('due-day-field').style.display  = isOneTime ? 'none' : '';
+  document.getElementById('due-date-field').style.display = isOneTime ? '' : 'none';
+}
+function addBill() {
+  const name = document.getElementById('bill-name').value.trim();
+  const cat  = document.getElementById('bill-cat').value;
+  const freq = document.getElementById('bill-freq').value;
+  if (!name) { alert('Please enter a bill name.'); return; }
+  if (cat === 'Mortgage') {
+    const splits = [
+      { amt: parseFloat(document.getElementById('mg-amt-1').value)||0, day: parseInt(document.getElementById('mg-day-1').value)||null },
+      { amt: parseFloat(document.getElementById('mg-amt-2').value)||0, day: parseInt(document.getElementById('mg-day-2').value)||null },
+      { amt: parseFloat(document.getElementById('mg-amt-3').value)||0, day: parseInt(document.getElementById('mg-day-3').value)||null },
+    ];
+    const total = splits.reduce((s,p)=>s+p.amt, 0);
+    if (total<=0) { alert('Please enter at least one payment amount.'); return; }
+    bills.push({ id:Date.now(), name, amt:total, monthly:total, cat:'Mortgage', freq:'monthly', isMortgage:true, splits });
+    ['mg-amt-1','mg-amt-2','mg-amt-3','mg-day-1','mg-day-2','mg-day-3'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('mg-total-display').textContent='$0.00';
+  } else {
+    const amt = parseFloat(document.getElementById('bill-amt').value)||0;
+    if (amt<=0) { alert('Please enter an amount.'); return; }
+    const dueDay  = freq!=='one-time' ? (parseInt(document.getElementById('bill-due-day').value)||null) : null;
+    const dueDate = freq==='one-time' ? (document.getElementById('bill-due-date').value||null) : null;
+    bills.push({ id:Date.now(), name, amt, monthly:freqToMonthly(amt,freq), cat, freq, dueDay, dueDate });
+    document.getElementById('bill-amt').value      = '';
+    document.getElementById('bill-due-day').value  = '';
+    document.getElementById('bill-due-date').value = '';
+  }
+  document.getElementById('bill-name').value = '';
+  renderBills(); updateSummary(); renderWeekly(); saveData();
+}
+function removeBill(id) {
+  bills = bills.filter(b=>b.id!==id);
+  renderBills(); updateSummary(); renderWeekly(); saveData();
+}
+const freqLabel = { monthly:'monthly', biweekly:'bi-weekly', weekly:'weekly', annual:'annual', 'one-time':'one-time' };
+
+function dayDueBadge(dueDay) {
+  if (!dueDay) return '';
+  const d = today.getDate();
+  const daysUntil = dueDay>=d ? dueDay-d : dueDay+(new Date(today.getFullYear(),today.getMonth()+1,0).getDate()-d);
+  const cls    = daysUntil<=5 ? 'due-soon' : '';
+  const suffix = daysUntil===0 ? 'today' : daysUntil<=5 ? `in ${daysUntil}d` : `day ${dueDay}`;
+  return `<span class="due-badge ${cls}">📅 Due ${suffix}</span>`;
+}
+function dueBadgeHtml(b) {
+  if (b.isMortgage) return '';
+  if (b.freq==='one-time' && b.dueDate) {
+    const due  = new Date(b.dueDate+'T00:00:00');
+    const diff = Math.round((due-today)/86400000);
+    const label = due.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const cls   = diff<0?'overdue':diff<=7?'due-soon':'';
+    const prefix= diff<0?'Overdue · ':diff===0?'Due today · ':diff<=7?'Due soon · ':'Due ';
+    return `<span class="due-badge ${cls}">📅 ${prefix}${label}</span>`;
+  }
+  if (b.dueDay) return dayDueBadge(b.dueDay);
+  return '';
+}
+function renderBills() {
+  const el = document.getElementById('bill-list');
+  if (!bills.length) { el.innerHTML='<div class="empty-state">No bills added yet.</div>'; return; }
+  el.innerHTML = bills.map(b => {
+    if (b.isMortgage) {
+      const splitsHtml = b.splits.filter(s=>s.amt>0).map((s,i)=>`
+        <div class="split-line">
+          <div class="split-line-left"><span class="split-num">${i+1}</span> Payment ${i+1}${s.day?` &mdash; due the ${ordinal(s.day)}`:''}
+          </div><div class="split-line-amt">-$${s.amt.toFixed(2)}</div>
+        </div>`).join('');
+      return `<div class="bill-item mortgage">
+        <div class="bill-top">
+          <div class="bill-info">
+            <div class="bill-name">🏠 ${esc(b.name)}</div>
+            <div class="bill-cat"><span class="tag" style="background:rgba(244,197,66,.15);color:var(--gold);border:1px solid rgba(244,197,66,.3)">Mortgage</span> <span class="pay-freq">monthly &mdash; $${b.monthly.toFixed(2)}/mo total</span></div>
+          </div>
+          <div class="bill-amt">-$${b.amt.toFixed(2)}</div>
+          <button class="btn btn-danger" onclick="removeBill(${b.id})">✕</button>
+        </div>
+        <div class="mortgage-splits">${splitsHtml}</div>
+      </div>`;
+    }
+    return `<div class="bill-item">
+      <div class="bill-info">
+        <div class="bill-name">${esc(b.name)}${dueBadgeHtml(b)}</div>
+        <div class="bill-cat"><span class="tag">${esc(b.cat)}</span> <span class="pay-freq">${freqLabel[b.freq]} &mdash; $${b.monthly.toFixed(2)}/mo</span></div>
+      </div>
+      <div class="bill-amt">-$${b.amt.toFixed(2)}</div>
+      <button class="btn btn-danger" onclick="removeBill(${b.id})">✕</button>
+    </div>`;
+  }).join('');
+}
+function applyTotal() {
+  totalBillsOverride = parseFloat(document.getElementById('total-bills').value)||0;
+  updateSummary(); renderWeekly(); saveData();
+}
+
+// ═══════════════════ MONTHLY SUMMARY ═══════════════════
+function updateSummary() {
+  const totalBills = activeTab==='total' ? (totalBillsOverride||0) : bills.reduce((s,b)=>s+b.monthly,0);
+  const remain = income-totalBills;
+  const pct    = income>0 ? Math.max(0,(remain/income)*100) : 100;
+  document.getElementById('s-income').textContent = `$${income.toFixed(2)}`;
+  document.getElementById('s-bills').textContent  = `$${totalBills.toFixed(2)}`;
+  const remEl = document.getElementById('s-remain');
+  remEl.textContent = `$${Math.abs(remain).toFixed(2)}`;
+  remEl.className   = `sum-val ${remain<0?'negative':'remain'}`;
+  const bar = document.getElementById('health-bar');
+  bar.style.width      = pct.toFixed(1)+'%';
+  bar.style.background = pct>50?'var(--green)':pct>20?'var(--warn)':'var(--red)';
+  document.getElementById('hl-spent').textContent = `$${totalBills.toFixed(2)} in bills`;
+  document.getElementById('hl-pct').textContent   = `${pct.toFixed(0)}% remaining`;
+}
+
+// ═══════════════════ BILLS TAB ═══════════════════
+function setTab(tab, silent) {
+  activeTab = tab;
+  document.getElementById('tab-itemized').classList.toggle('active', tab==='itemized');
+  document.getElementById('tab-total').classList.toggle('active',    tab==='total');
+  document.getElementById('view-itemized').style.display = tab==='itemized'?'':'none';
+  document.getElementById('view-total').style.display    = tab==='total'   ?'':'none';
+  updateSummary(); renderWeekly();
+  if (!silent) saveData();
+}
+
+// ═══════════════════ WEEKLY VIEW ═══════════════════
+function shiftWeek(dir) { weekOffset+=dir; renderWeekly(); }
+function getWeekStart(baseDate, offset) {
+  const d=new Date(baseDate); d.setDate(d.getDate()-d.getDay()+offset*7); d.setHours(0,0,0,0); return d;
+}
+function renderWeekly() {
+  const DAYS_SHORT=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const weekStart=getWeekStart(today,weekOffset);
+  const weekEnd=new Date(weekStart); weekEnd.setDate(weekEnd.getDate()+6);
+  const fmt=d=>`${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  document.getElementById('week-label').textContent=
+    weekStart.getMonth()===weekEnd.getMonth()
+      ? `${MONTHS[weekStart.getMonth()]} ${weekStart.getDate()}–${weekEnd.getDate()}, ${weekEnd.getFullYear()}`
+      : `${fmt(weekStart)} – ${fmt(weekEnd)}, ${weekEnd.getFullYear()}`;
+  let stripHtml='';
+  for(let i=0;i<7;i++){
+    const d=new Date(weekStart); d.setDate(d.getDate()+i);
+    const isT=d.toDateString()===today.toDateString();
+    stripHtml+=`<div class="wday${isT?' is-today':''}"><div class="wday-name">${DAYS_SHORT[d.getDay()]}</div><div class="wday-num">${d.getDate()}</div></div>`;
+  }
+  document.getElementById('week-strip').innerHTML=stripHtml;
+  const weeklyIncome=incomeAmt>0?freqToWeekly(incomeAmt,incomeFreq):0;
+  let incomeRows=[];
+  if(incomeAmt>0){
+    if(incomeFreq==='weekly') incomeRows.push({label:'Paycheck',amt:incomeAmt,sub:'Weekly pay'});
+    else if(incomeFreq==='biweekly'){
+      if(weekOffset%2===0) incomeRows.push({label:'Paycheck',amt:incomeAmt,sub:'Bi-weekly pay — lands this week'});
+      else incomeRows.push({label:'Paycheck',amt:0,sub:'Bi-weekly pay — not this week',skip:true});
+    }
+    else if(incomeFreq==='monthly') incomeRows.push({label:'Monthly income (weekly share)',amt:weeklyIncome,sub:`$${income.toFixed(2)}/mo ÷ 4.33 weeks`});
+    else if(incomeFreq==='annual')  incomeRows.push({label:'Annual income (weekly share)',amt:weeklyIncome,sub:`$${incomeAmt.toFixed(2)}/yr ÷ 52 weeks`});
+  }
+  const wIncomeTotal=incomeRows.filter(r=>!r.skip).reduce((s,r)=>s+r.amt,0);
+  document.getElementById('w-income-list').innerHTML=incomeRows.length
+    ? incomeRows.map(r=>`<div class="income-row"${r.skip?' style="opacity:.45"':''}>
+        <div class="week-bill-left"><div class="week-bill-name">${esc(r.label)}</div><div class="week-bill-sub">${esc(r.sub)}</div></div>
+        <div class="income-row-amt">${r.skip?'—':'+$'+r.amt.toFixed(2)}</div></div>`).join('')
+    : '<div class="empty-state">Set your income on the Overview tab.</div>';
+  let wBills=[];
+  if(activeTab==='total'&&totalBillsOverride){
+    wBills.push({name:'All bills (prorated)',sub:'Monthly total ÷ 4.33',amt:(totalBillsOverride*12)/52});
+  } else {
+    bills.forEach(b=>{
+      if(b.isMortgage){
+        b.splits.forEach((s,i)=>{
+          if(!s.amt) return;
+          if(s.day){
+            const dueDt=new Date(weekStart.getFullYear(),weekStart.getMonth(),s.day);
+            const dueDtNext=new Date(weekEnd.getFullYear(),weekEnd.getMonth(),s.day);
+            const hits=(dueDt>=weekStart&&dueDt<=weekEnd)||(dueDtNext>=weekStart&&dueDtNext<=weekEnd&&dueDtNext.getMonth()!==dueDt.getMonth());
+            if(hits) wBills.push({name:`🏠 ${b.name} — Pmt ${i+1}`,sub:`Mortgage · due the ${ordinal(s.day)}`,amt:s.amt});
+            else     wBills.push({name:`🏠 ${b.name} — Pmt ${i+1}`,sub:`Mortgage · due the ${ordinal(s.day)} — not this week`,amt:0,skip:true});
+          } else {
+            wBills.push({name:`🏠 ${b.name} — Pmt ${i+1}`,sub:'Mortgage · prorated weekly share',amt:(s.amt*12)/52});
+          }
+        }); return;
+      }
+      if(b.freq==='weekly') wBills.push({name:b.name,sub:`${b.cat} · weekly`,amt:b.amt});
+      else if(b.freq==='biweekly'){
+        if(weekOffset%2===0) wBills.push({name:b.name,sub:`${b.cat} · bi-weekly — due this week`,amt:b.amt});
+        else                 wBills.push({name:b.name,sub:`${b.cat} · bi-weekly — not this week`,amt:0,skip:true});
+      }
+      else if(b.freq==='monthly'){
+        if(b.dueDay){
+          const dueDt=new Date(weekStart.getFullYear(),weekStart.getMonth(),b.dueDay);
+          const dueDtNext=new Date(weekEnd.getFullYear(),weekEnd.getMonth(),b.dueDay);
+          const hits=(dueDt>=weekStart&&dueDt<=weekEnd)||(dueDtNext>=weekStart&&dueDtNext<=weekEnd&&dueDtNext.getMonth()!==dueDt.getMonth());
+          if(hits) wBills.push({name:b.name,sub:`${b.cat} · due the ${ordinal(b.dueDay)} — this week`,amt:b.amt});
+          else     wBills.push({name:b.name,sub:`${b.cat} · due the ${ordinal(b.dueDay)} — not this week`,amt:0,skip:true});
+        } else wBills.push({name:b.name,sub:`${b.cat} · monthly, prorated weekly share`,amt:(b.amt*12)/52});
+      }
+      else if(b.freq==='annual') wBills.push({name:b.name,sub:`${b.cat} · annual, weekly share`,amt:b.amt/52});
+      else if(b.freq==='one-time'){
+        if(b.dueDate){
+          const due=new Date(b.dueDate+'T00:00:00');
+          if(due>=weekStart&&due<=weekEnd) wBills.push({name:b.name,sub:`${b.cat} · due ${due.toLocaleDateString('en-US',{month:'short',day:'numeric'})}`,amt:b.amt});
+          else wBills.push({name:b.name,sub:`${b.cat} · one-time, not this week`,amt:0,skip:true});
+        } else if(weekOffset===0) wBills.push({name:b.name,sub:`${b.cat} · one-time`,amt:b.amt});
+      }
+    });
+  }
+  const wBillTotal=wBills.filter(r=>!r.skip).reduce((s,r)=>s+r.amt,0);
+  document.getElementById('w-bill-list').innerHTML=wBills.length
+    ? wBills.map(r=>`<div class="week-bill-row"${r.skip?' style="opacity:.45"':''}>
+        <div class="week-bill-left"><div class="week-bill-name">${esc(r.name)}</div><div class="week-bill-sub">${esc(r.sub)}</div></div>
+        <div class="week-bill-amt">${r.skip?'—':'-$'+r.amt.toFixed(2)}</div></div>`).join('')
+    : '<div class="empty-state">No bills to show. Add itemized bills on the Overview tab.</div>';
+  const wRemain=wIncomeTotal-wBillTotal;
+  const wPct=wIncomeTotal>0?Math.max(0,(wRemain/wIncomeTotal)*100):100;
+  document.getElementById('w-income').textContent=`$${wIncomeTotal.toFixed(2)}`;
+  document.getElementById('w-bills').textContent =`$${wBillTotal.toFixed(2)}`;
+  const wRemEl=document.getElementById('w-remain');
+  wRemEl.textContent=`$${Math.abs(wRemain).toFixed(2)}`;
+  wRemEl.className=`sum-val ${wRemain<0?'negative':'remain'}`;
+  const wBar=document.getElementById('w-bar');
+  wBar.style.width=wPct.toFixed(1)+'%';
+  wBar.style.background=wPct>50?'var(--green)':wPct>20?'var(--warn)':'var(--red)';
+  document.getElementById('w-bar-left').textContent =`$${wBillTotal.toFixed(2)} in bills`;
+  document.getElementById('w-bar-right').textContent=`${wPct.toFixed(0)}% remaining`;
+}
+
+// ═══════════════════ CALENDAR ═══════════════════
+function changeMonth(dir) {
+  calMonth+=dir;
+  if(calMonth<0){calMonth=11;calYear--;} if(calMonth>11){calMonth=0;calYear++;}
+  renderCalendar();
+}
+function renderCalendar() {
+  const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('cal-month-label').textContent=`${MONTHS[calMonth]} ${calYear}`;
+  const first=new Date(calYear,calMonth,1).getDay();
+  const days=new Date(calYear,calMonth+1,0).getDate();
+  const prevD=new Date(calYear,calMonth,0).getDate();
+  const ws=getWeekStart(today,weekOffset); const we=new Date(ws); we.setDate(we.getDate()+6);
+  let html=['Su','Mo','Tu','We','Th','Fr','Sa'].map(d=>`<div class="cal-dow">${d}</div>`).join('');
+  for(let i=0;i<first;i++) html+=`<div class="cal-day other-month">${prevD-first+1+i}</div>`;
+  for(let d=1;d<=days;d++){
+    const key=`${calYear}-${calMonth}-${d}`;
+    const dt=new Date(calYear,calMonth,d);
+    const isT=d===today.getDate()&&calMonth===today.getMonth()&&calYear===today.getFullYear();
+    const isSel=selectedDate&&selectedDate.d===d&&selectedDate.m===calMonth&&selectedDate.y===calYear;
+    const hasN=!!notes[key];
+    const inWeek=dt>=ws&&dt<=we;
+    const hasBillDue=bills.some(b=>{
+      if(b.isMortgage) return b.splits.some(s=>s.day===d&&s.amt>0);
+      if(b.dueDay&&b.freq!=='one-time') return b.dueDay===d;
+      if(b.dueDate){const bd=new Date(b.dueDate+'T00:00:00');return bd.getFullYear()===calYear&&bd.getMonth()===calMonth&&bd.getDate()===d;}
+      return false;
+    });
+    const cls=['cal-day',isT?'today':'',isSel&&!isT?'selected':'',inWeek&&!isT?'in-week':''].filter(Boolean).join(' ');
+    const dots=(hasN||hasBillDue)?`<div class="cal-dots">${hasN?'<div class="cal-dot"></div>':''}${hasBillDue?'<div class="cal-dot-bill"></div>':''}</div>`:'';
+    html+=`<div class="${cls}" onclick="selectDay(${d})">${d}${dots}</div>`;
+  }
+  const trailing=(first+days)%7===0?0:7-(first+days)%7;
+  for(let i=1;i<=trailing;i++) html+=`<div class="cal-day other-month">${i}</div>`;
+  document.getElementById('cal-grid').innerHTML=html;
+}
+function selectDay(d) {
+  selectedDate={d,m:calMonth,y:calYear}; renderCalendar();
+  const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('note-date-label').textContent=`Note for ${MONTHS[calMonth]} ${d}, ${calYear}`;
+  document.getElementById('note-input').value=notes[`${calYear}-${calMonth}-${d}`]||'';
+  document.getElementById('note-section').style.display='';
+}
+function saveNote() {
+  if(!selectedDate) return;
+  const key=`${selectedDate.y}-${selectedDate.m}-${selectedDate.d}`;
+  const val=document.getElementById('note-input').value.trim();
+  if(val) notes[key]=val; else delete notes[key];
+  renderCalendar(); saveData();
+}
+
+// ═══════════════════ UTIL ═══════════════════
+function esc(s){return String(s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));}
+function ordinal(n){const s=['th','st','nd','rd'],v=n%100;return n+(s[(v-20)%10]||s[v]||s[0]);}
+</script>
+</body>
+</html>
