@@ -149,11 +149,19 @@
   .week-bar-bg { height:8px; background:var(--border); border-radius:99px; overflow:hidden; margin-top:8px; }
   .week-bar-fill { height:100%; border-radius:99px; background:var(--green); transition:width .5s ease, background .4s ease; }
   .week-section-title { font-size:.68rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid var(--border); }
-  .week-bill-row { display:flex; align-items:center; justify-content:space-between; padding:9px 12px; background:var(--navy); border:1px solid var(--border); border-radius:8px; margin-bottom:8px; }
+  .week-bill-row { display:flex; align-items:center; justify-content:space-between; padding:9px 12px; background:var(--navy); border:1px solid var(--border); border-radius:8px; margin-bottom:8px; transition:opacity .2s, border-color .2s; cursor:pointer; user-select:none; }
+  .week-bill-row:hover { border-color:var(--muted); }
+  .week-bill-row.paid { opacity:.5; border-color:var(--green); background:rgba(61,214,140,.04); }
   .week-bill-left { flex:1; min-width:0; }
-  .week-bill-name { font-size:.88rem; font-weight:500; }
+  .week-bill-name { font-size:.88rem; font-weight:500; transition:text-decoration .15s; }
+  .week-bill-row.paid .week-bill-name { text-decoration:line-through; color:var(--muted); }
   .week-bill-sub  { font-size:.68rem; color:var(--muted); margin-top:2px; }
-  .week-bill-amt  { font-family:'DM Mono',monospace; font-size:.9rem; color:var(--red); margin-left:12px; flex-shrink:0; }
+  .week-bill-amt  { font-family:'DM Mono',monospace; font-size:.9rem; color:var(--red); margin-left:12px; flex-shrink:0; transition:color .15s; }
+  .week-bill-row.paid .week-bill-amt { color:var(--green); text-decoration:line-through; }
+  .paid-check { width:22px; height:22px; border-radius:50%; border:2px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-left:10px; font-size:.7rem; transition:background .2s, border-color .2s; color:transparent; }
+  .week-bill-row.paid .paid-check { background:var(--green); border-color:var(--green); color:var(--navy); }
+  .week-paid-summary { font-size:.72rem; color:var(--muted); text-align:right; margin-top:4px; margin-bottom:-4px; }
+  .week-paid-summary span { color:var(--green); font-family:'DM Mono',monospace; font-weight:600; }
   .income-row { display:flex; align-items:center; justify-content:space-between; padding:9px 12px; background:var(--navy); border:1px solid var(--border); border-radius:8px; margin-bottom:8px; }
   .income-row-amt  { font-family:'DM Mono',monospace; font-size:.9rem; color:var(--green); margin-left:12px; flex-shrink:0; }
 
@@ -408,6 +416,9 @@
   </div>
   <div class="card">
     <div class="week-section-title">&#9660; Bills This Week</div>
+    <div class="week-paid-summary" id="w-paid-summary" style="display:none">
+      <span id="w-paid-count">0</span> of <span id="w-total-count">0</span> paid &mdash; <span id="w-paid-amt">$0.00</span> cleared
+    </div>
     <div id="w-bill-list"></div>
   </div>
 </div></div><!-- /page-weekly -->
@@ -465,13 +476,14 @@ let income = 0, incomeAmt = 0, incomeFreq = 'monthly';
 let bills = [], notes = {}, activeTab = 'itemized';
 let totalBillsOverride = null, weekOffset = 0;
 let calYear, calMonth, selectedDate = null;
+let paidBills = {}; // "YYYY-Www|rowKey" -> true
 const today = new Date();
 
 // ═══════════════════ LOCALSTORAGE ═══════════════════
 const LS_KEY = 'budget_data_v1';
 
 function saveData() {
-  const data = { income, incomeAmt, incomeFreq, bills, notes, activeTab, totalBillsOverride };
+  const data = { income, incomeAmt, incomeFreq, bills, notes, activeTab, totalBillsOverride, paidBills };
   localStorage.setItem(LS_KEY, JSON.stringify(data));
   showToast();
 }
@@ -488,7 +500,24 @@ function loadData() {
     notes               = d.notes        || {};
     activeTab           = d.activeTab    || 'itemized';
     totalBillsOverride  = d.totalBillsOverride || null;
+    paidBills           = d.paidBills    || {};
   } catch(e) { console.warn('Load error', e); }
+}
+
+// Week key resets paid state each calendar week automatically
+function getWeekKey(offset) {
+  const ws = getWeekStart(today, offset);
+  const jan1 = new Date(ws.getFullYear(), 0, 1);
+  const wn = Math.ceil(((ws - jan1) / 86400000 + jan1.getDay() + 1) / 7);
+  return ws.getFullYear() + '-W' + String(wn).padStart(2,'0');
+}
+function togglePaid(rowKey) {
+  const key = getWeekKey(weekOffset) + '|' + rowKey;
+  if (paidBills[key]) delete paidBills[key]; else paidBills[key] = true;
+  renderWeekly(); saveData();
+}
+function isPaid(rowKey) {
+  return !!paidBills[getWeekKey(weekOffset) + '|' + rowKey];
 }
 
 function showToast() {
@@ -795,11 +824,37 @@ function renderWeekly() {
     });
   }
   const wBillTotal=wBills.filter(r=>!r.skip).reduce((s,r)=>s+r.amt,0);
-  document.getElementById('w-bill-list').innerHTML=wBills.length
-    ? wBills.map(r=>`<div class="week-bill-row"${r.skip?' style="opacity:.45"':''}>
-        <div class="week-bill-left"><div class="week-bill-name">${esc(r.name)}</div><div class="week-bill-sub">${esc(r.sub)}</div></div>
-        <div class="week-bill-amt">${r.skip?'—':'-$'+r.amt.toFixed(2)}</div></div>`).join('')
+  // Build bill rows with paid toggle
+  const activeBills = wBills.filter(r=>!r.skip);
+  const billHtml = wBills.length
+    ? wBills.map((r,i) => {
+        if (r.skip) return `<div class="week-bill-row" style="opacity:.35;cursor:default;pointer-events:none">
+          <div class="week-bill-left"><div class="week-bill-name">${esc(r.name)}</div><div class="week-bill-sub">${esc(r.sub)}</div></div>
+          <div class="week-bill-amt">—</div>
+          <div class="paid-check"></div></div>`;
+        const rk = esc(r.name).replace(/\s+/g,'_') + '_' + i;
+        const paid = isPaid(rk);
+        return `<div class="week-bill-row${paid?' paid':''}" onclick="togglePaid('${rk}')">
+          <div class="week-bill-left"><div class="week-bill-name">${esc(r.name)}</div><div class="week-bill-sub">${esc(r.sub)}</div></div>
+          <div class="week-bill-amt">-$${r.amt.toFixed(2)}</div>
+          <div class="paid-check">✓</div></div>`;
+      }).join('')
     : '<div class="empty-state">No bills to show. Add itemized bills on the Overview tab.</div>';
+  document.getElementById('w-bill-list').innerHTML = billHtml;
+  // Paid summary — recalc using same rowKey logic
+  let paidCount=0, paidAmt=0;
+  wBills.forEach((r,i)=>{
+    if(r.skip) return;
+    const rk = r.rowKey || esc(r.name).replace(/\s+/g,'_')+'_'+i;
+    if(isPaid(rk)){ paidCount++; paidAmt+=r.amt; }
+  });
+  const summEl = document.getElementById('w-paid-summary');
+  if (activeBills.length > 0) {
+    summEl.style.display = '';
+    document.getElementById('w-paid-count').textContent  = paidCount;
+    document.getElementById('w-total-count').textContent = activeBills.length;
+    document.getElementById('w-paid-amt').textContent    = '$'+paidAmt.toFixed(2);
+  } else { summEl.style.display = 'none'; }
   const wRemain=wIncomeTotal-wBillTotal;
   const wPct=wIncomeTotal>0?Math.max(0,(wRemain/wIncomeTotal)*100):100;
   document.getElementById('w-income').textContent=`$${wIncomeTotal.toFixed(2)}`;
