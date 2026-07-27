@@ -1064,16 +1064,29 @@ async function analyzeImageForBills(base64Data, mediaType) {
             },
             {
               type: 'text',
-              text: `Look at this image and extract any bills, expenses, or payment line items you can see.
-Return ONLY a JSON array, no markdown, no explanation. Each item must have:
-- "name": string (bill/expense name, keep it short and clear)
-- "amount": number (dollar amount as a number, no $ sign)
-- "category": one of: Housing, Utilities, Transport, Food, Insurance, Subscriptions, Debt, Healthcare, Other
-- "frequency": one of: monthly, weekly, biweekly, annual, one-time
-- "dueDay": number or null (day of month if visible, else null)
+              text: `You are reading a bill or expense list image. Extract every line item visible.
 
-If you cannot find any clear bill/expense data in the image, return an empty array [].
-Return only valid JSON, nothing else.`
+Common formats:
+- "Bill Name   7/22   $115.55"  (name, date as M/DD, dollar amount)
+- Tables with payee names, dates, and amounts
+- Bank/payment app screenshots, budget lists
+
+Return ONLY a valid JSON array — no markdown, no code fences, no explanation.
+Each object must have exactly these fields:
+{ "name": "payee name", "amount": 115.55, "dueDay": 22, "category": "Debt", "frequency": "monthly" }
+
+Rules:
+- name: copy the payee/bill name exactly as shown in the image
+- amount: number only, no dollar sign (e.g. 115.55 not $115.55)
+- dueDay: extract the day integer from any date (e.g. from 7/22 use 22, from 7/27 use 27). Use null if no date.
+- category: best match from: Housing, Utilities, Transport, Food, Insurance, Subscriptions, Debt, Healthcare, Other
+  Credit cards / Mastercard / Affirm / Afterpay / financing = Debt
+  Gas / electric / water / internet = Utilities
+  Streaming / apps = Subscriptions
+- frequency: use monthly for recurring bills, one-time only for clear one-off purchases
+
+If no bill data found return [].
+Return only the JSON array, nothing else.`
             }
           ]
         }]
@@ -1108,29 +1121,35 @@ function renderDetectedBills(items) {
   const CATS = ['Housing','Utilities','Transport','Food','Insurance','Subscriptions','Debt','Healthcare','Other','Mortgage'];
   const FREQS = ['monthly','weekly','biweekly','annual','one-time'];
   const el = document.getElementById('detected-bills');
-  el.innerHTML = items.map((b, i) => `
+  el.innerHTML = `<div style="font-size:.72rem;color:var(--muted);margin-bottom:8px">Review detected bills — uncheck any you don't want to add, edit fields as needed.</div>` +
+  items.map((b, i) => {
+    const dueDateStr = b.dueDay ? `Due day: ${b.dueDay}` : 'No date detected';
+    return `
     <div class="detected-bill" id="det-${i}">
-      <div style="grid-column:1/-1;display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <div style="grid-column:1/-1;display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <div class="det-check" id="det-chk-${i}" onclick="toggleDetected(${i})">✓</div>
         <input type="text" id="det-name-${i}" value="${esc(b.name)}" placeholder="Bill name" style="flex:1" />
+        <span style="font-size:.68rem;color:var(--muted);white-space:nowrap;flex-shrink:0">${dueDateStr}</span>
       </div>
       <div class="detected-bill-row2" style="grid-column:1/-1">
-        <div class="input-prefix" style="position:relative">
-          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.85rem">$</span>
-          <input type="number" id="det-amt-${i}" value="${b.amount||''}" placeholder="0.00" min="0" step="0.01" style="padding-left:22px;width:100%" />
+        <div style="position:relative">
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.85rem;pointer-events:none">$</span>
+          <input type="number" id="det-amt-${i}" value="${b.amount||''}" placeholder="0.00" min="0" step="0.01" style="padding-left:22px;width:100%;background:var(--navy);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:.9rem;padding:8px 10px 8px 22px;outline:none" />
         </div>
-        <select id="det-cat-${i}">
+        <select id="det-cat-${i}" style="font-size:.78rem;padding:8px">
           ${CATS.map(c=>`<option value="${c}"${c===b.category?'selected':''}>${c}</option>`).join('')}
         </select>
-        <select id="det-freq-${i}">
+        <select id="det-freq-${i}" style="font-size:.78rem;padding:8px">
           ${FREQS.map(f=>`<option value="${f}"${f===b.frequency?'selected':''}>${f}</option>`).join('')}
         </select>
         <div class="due-day-wrap">
-          <input type="number" id="det-day-${i}" value="${b.dueDay||''}" placeholder="Due day" min="1" max="31" />
+          <input type="number" id="det-day-${i}" value="${b.dueDay||''}" placeholder="Due day" min="1" max="31"
+            style="background:var(--navy);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:.85rem;padding:8px 10px;outline:none" />
           <span class="due-hint">of mo.</span>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function toggleDetected(i) {
