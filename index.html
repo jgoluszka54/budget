@@ -193,6 +193,37 @@
   .split-line { display:flex; align-items:center; justify-content:space-between; font-size:.78rem; }
   .split-line-left { display:flex; align-items:center; gap:7px; color:var(--muted); }
   .split-line-amt  { font-family:'DM Mono',monospace; color:var(--red); font-size:.8rem; }
+
+  /* ── Screenshot import ── */
+  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:200; display:flex; align-items:center; justify-content:center; padding:16px; }
+  .modal-backdrop.hidden { display:none; }
+  .modal { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); width:100%; max-width:560px; max-height:90vh; overflow-y:auto; }
+  .modal-header { display:flex; align-items:center; justify-content:space-between; padding:18px 20px 0; }
+  .modal-title { font-size:.95rem; font-weight:700; }
+  .modal-close { background:transparent; border:none; color:var(--muted); font-size:1.3rem; cursor:pointer; line-height:1; padding:4px; }
+  .modal-close:hover { color:var(--text); }
+  .modal-body { padding:20px; }
+  .drop-zone { border:2px dashed var(--border); border-radius:10px; padding:32px 20px; text-align:center; cursor:pointer; transition:border-color .2s, background .2s; }
+  .drop-zone:hover, .drop-zone.drag-over { border-color:var(--gold); background:rgba(244,197,66,.05); }
+  .drop-zone-icon { font-size:2rem; margin-bottom:8px; }
+  .drop-zone-text { font-size:.85rem; color:var(--muted); }
+  .drop-zone-text strong { color:var(--gold); }
+  .drop-zone img { max-width:100%; max-height:180px; border-radius:8px; margin-top:12px; object-fit:contain; }
+  .import-status { font-size:.8rem; color:var(--muted); text-align:center; margin-top:12px; min-height:20px; }
+  .import-status.loading { color:var(--gold); }
+  .import-status.error   { color:var(--red); }
+  .detected-bills { display:flex; flex-direction:column; gap:8px; margin-top:16px; }
+  .detected-bill { background:var(--navy); border:1px solid var(--border); border-radius:8px; padding:10px 12px; display:grid; grid-template-columns:1fr auto auto; gap:8px; align-items:center; }
+  .detected-bill input[type="text"]   { font-size:.85rem; padding:6px 10px; }
+  .detected-bill input[type="number"] { font-size:.85rem; padding:6px 10px; width:90px; }
+  .detected-bill select { font-size:.78rem; padding:6px 8px; }
+  .detected-bill-row2 { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:6px; }
+  .det-remove { background:transparent; border:none; color:var(--red); cursor:pointer; font-size:.85rem; padding:2px 6px; }
+  .det-check { width:22px; height:22px; border-radius:50%; background:rgba(61,214,140,.15); border:2px solid var(--green); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; color:var(--green); font-size:.75rem; }
+  .det-check.off { background:transparent; border-color:var(--border); color:transparent; }
+  .import-actions { display:flex; gap:10px; margin-top:16px; justify-content:flex-end; }
+  .spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(244,197,66,.3); border-top-color:var(--gold); border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-right:6px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -296,6 +327,11 @@
       <div class="toggle-btn" id="tab-total" onclick="setTab('total')">Total Only</div>
     </div>
     <div id="view-itemized">
+      <div style="display:flex; justify-content:flex-end; margin-bottom:12px;">
+        <button class="btn btn-ghost" style="font-size:.78rem;padding:7px 12px;display:flex;align-items:center;gap:6px" onclick="openImportModal()">
+          📸 Import from Screenshot
+        </button>
+      </div>
       <div class="add-bill-form">
         <div>
           <label>Bill name</label>
@@ -423,6 +459,35 @@
   </div>
 </div></div><!-- /page-weekly -->
 
+
+<!-- ══════════════════ SCREENSHOT IMPORT MODAL ══════════════════ -->
+<div class="modal-backdrop hidden" id="import-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">📸 Import Bills from Screenshot</div>
+      <button class="modal-close" onclick="closeImportModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="drop-zone" id="drop-zone"
+           onclick="document.getElementById('img-upload').click()"
+           ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+        <div class="drop-zone-icon">🖼️</div>
+        <div class="drop-zone-text">
+          <strong>Click to choose</strong> or drag &amp; drop a screenshot<br>
+          <span style="font-size:.72rem">Bank statement, bill list, expense summary — any image with bill names &amp; amounts</span>
+        </div>
+        <img id="preview-img" style="display:none" />
+      </div>
+      <input type="file" id="img-upload" accept="image/*" style="display:none" onchange="handleFileSelect(event)" />
+      <div class="import-status" id="import-status"></div>
+      <div class="detected-bills" id="detected-bills"></div>
+      <div class="import-actions" id="import-actions" style="display:none">
+        <button class="btn btn-ghost" onclick="closeImportModal()">Cancel</button>
+        <button class="btn btn-gold" onclick="importSelectedBills()">Add Selected Bills</button>
+      </div>
+    </div>
+  </div>
+</div>
 </div><!-- /app-shell -->
 
 <div class="save-toast" id="save-toast">✓ Saved</div>
@@ -923,6 +988,185 @@ function saveNote() {
 // ═══════════════════ UTIL ═══════════════════
 function esc(s){return String(s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));}
 function ordinal(n){const s=['th','st','nd','rd'],v=n%100;return n+(s[(v-20)%10]||s[v]||s[0]);}
+
+// ═══════════════════ SCREENSHOT IMPORT ═══════════════════
+let detectedBillsData = [];
+
+function openImportModal() {
+  document.getElementById('import-modal').classList.remove('hidden');
+  document.getElementById('preview-img').style.display = 'none';
+  document.getElementById('preview-img').src = '';
+  document.getElementById('import-status').textContent = '';
+  document.getElementById('import-status').className = 'import-status';
+  document.getElementById('detected-bills').innerHTML = '';
+  document.getElementById('import-actions').style.display = 'none';
+  document.getElementById('img-upload').value = '';
+  detectedBillsData = [];
+}
+
+function closeImportModal() {
+  document.getElementById('import-modal').classList.add('hidden');
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.add('drag-over');
+}
+function handleDragLeave(e) {
+  document.getElementById('drop-zone').classList.remove('drag-over');
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) processImage(file);
+}
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) processImage(file);
+}
+
+function processImage(file) {
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const base64 = e.target.result.split(',')[1];
+    const mediaType = file.type;
+    const prevImg = document.getElementById('preview-img');
+    prevImg.src = e.target.result;
+    prevImg.style.display = 'block';
+    await analyzeImageForBills(base64, mediaType);
+  };
+  reader.readAsDataURL(file);
+}
+
+async function analyzeImageForBills(base64Data, mediaType) {
+  const statusEl = document.getElementById('import-status');
+  const billsEl  = document.getElementById('detected-bills');
+  statusEl.innerHTML = '<span class="spinner"></span> Analyzing image for bills…';
+  statusEl.className = 'import-status loading';
+  billsEl.innerHTML = '';
+  document.getElementById('import-actions').style.display = 'none';
+  detectedBillsData = [];
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: mediaType, data: base64Data }
+            },
+            {
+              type: 'text',
+              text: `Look at this image and extract any bills, expenses, or payment line items you can see.
+Return ONLY a JSON array, no markdown, no explanation. Each item must have:
+- "name": string (bill/expense name, keep it short and clear)
+- "amount": number (dollar amount as a number, no $ sign)
+- "category": one of: Housing, Utilities, Transport, Food, Insurance, Subscriptions, Debt, Healthcare, Other
+- "frequency": one of: monthly, weekly, biweekly, annual, one-time
+- "dueDay": number or null (day of month if visible, else null)
+
+If you cannot find any clear bill/expense data in the image, return an empty array [].
+Return only valid JSON, nothing else.`
+            }
+          ]
+        }]
+      })
+    });
+
+    const data = await response.json();
+    const rawText = data.content?.find(c => c.type === 'text')?.text || '[]';
+    const cleaned = rawText.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      statusEl.textContent = 'No bills detected in this image. Try a clearer screenshot.';
+      statusEl.className = 'import-status error';
+      return;
+    }
+
+    detectedBillsData = parsed;
+    statusEl.textContent = `Found ${parsed.length} bill${parsed.length > 1 ? 's' : ''} — review and confirm below.`;
+    statusEl.className = 'import-status';
+    renderDetectedBills(parsed);
+    document.getElementById('import-actions').style.display = 'flex';
+
+  } catch(err) {
+    console.error(err);
+    statusEl.textContent = 'Could not analyze image. Please try again.';
+    statusEl.className = 'import-status error';
+  }
+}
+
+function renderDetectedBills(items) {
+  const CATS = ['Housing','Utilities','Transport','Food','Insurance','Subscriptions','Debt','Healthcare','Other','Mortgage'];
+  const FREQS = ['monthly','weekly','biweekly','annual','one-time'];
+  const el = document.getElementById('detected-bills');
+  el.innerHTML = items.map((b, i) => `
+    <div class="detected-bill" id="det-${i}">
+      <div style="grid-column:1/-1;display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <div class="det-check" id="det-chk-${i}" onclick="toggleDetected(${i})">✓</div>
+        <input type="text" id="det-name-${i}" value="${esc(b.name)}" placeholder="Bill name" style="flex:1" />
+      </div>
+      <div class="detected-bill-row2" style="grid-column:1/-1">
+        <div class="input-prefix" style="position:relative">
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.85rem">$</span>
+          <input type="number" id="det-amt-${i}" value="${b.amount||''}" placeholder="0.00" min="0" step="0.01" style="padding-left:22px;width:100%" />
+        </div>
+        <select id="det-cat-${i}">
+          ${CATS.map(c=>`<option value="${c}"${c===b.category?'selected':''}>${c}</option>`).join('')}
+        </select>
+        <select id="det-freq-${i}">
+          ${FREQS.map(f=>`<option value="${f}"${f===b.frequency?'selected':''}>${f}</option>`).join('')}
+        </select>
+        <div class="due-day-wrap">
+          <input type="number" id="det-day-${i}" value="${b.dueDay||''}" placeholder="Due day" min="1" max="31" />
+          <span class="due-hint">of mo.</span>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function toggleDetected(i) {
+  const chk = document.getElementById('det-chk-' + i);
+  chk.classList.toggle('off');
+}
+
+function importSelectedBills() {
+  let added = 0;
+  detectedBillsData.forEach((_, i) => {
+    const chk = document.getElementById('det-chk-' + i);
+    if (chk.classList.contains('off')) return; // unchecked
+    const name    = document.getElementById('det-name-' + i).value.trim();
+    const amt     = parseFloat(document.getElementById('det-amt-' + i).value) || 0;
+    const cat     = document.getElementById('det-cat-' + i).value;
+    const freq    = document.getElementById('det-freq-' + i).value;
+    const dueDay  = parseInt(document.getElementById('det-day-' + i).value) || null;
+    if (!name || amt <= 0) return;
+    if (cat === 'Mortgage') {
+      bills.push({ id:Date.now()+i, name, amt, monthly:amt, cat:'Mortgage', freq:'monthly', isMortgage:true,
+        splits:[{amt, day:dueDay},{amt:0,day:null},{amt:0,day:null}] });
+    } else {
+      bills.push({ id:Date.now()+i, name, amt, monthly:freqToMonthly(amt,freq), cat, freq, dueDay, dueDate:null });
+    }
+    added++;
+  });
+  if (added > 0) {
+    renderBills(); updateSummary(); renderWeekly(); saveData();
+    closeImportModal();
+    const t = document.getElementById('save-toast');
+    t.textContent = `✓ Added ${added} bill${added>1?'s':''}`;
+    t.classList.add('show');
+    setTimeout(()=>{ t.classList.remove('show'); t.textContent='✓ Saved'; }, 2500);
+  }
+}
+
 </script>
 </body>
 </html>
